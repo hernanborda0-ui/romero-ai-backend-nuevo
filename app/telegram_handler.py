@@ -70,3 +70,52 @@ async def process_update(data: dict):
             return
 
     await send_message(chat_id, "👌 Recibido. Probá: 'mañana a las 9' o 'todos los días a las 08:00'.")
+    from faster_whisper import WhisperModel
+
+# Al inicio del archivo (carga el modelo una sola vez)
+model_size = "tiny"  # o "base", "small" si tenés más RAM
+whisper_model = WhisperModel(model_size, device="cpu", compute_type="int8")  # "cuda" si Railway te da GPU algún día
+
+# Dentro de process_update, después de chequear text:
+if "voice" in message:
+    voice = message["voice"]
+    file_id = voice["file_id"]
+
+    # Descargar audio (como antes)
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{TELEGRAM_URL}/getFile?file_id={file_id}")
+        file_path = resp.json()["result"]["file_path"]
+        audio_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+
+    async with httpx.AsyncClient() as client:
+        audio_resp = await client.get(audio_url)
+        audio_bytes = audio_resp.content
+
+    # Guardar temporalmente (Railway tiene /tmp)
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as tmp_file:
+        tmp_file.write(audio_bytes)
+        tmp_path = tmp_file.name
+
+    # Transcribir
+    try:
+        segments, info = whisper_model.transcribe(tmp_path, language="es", beam_size=5)
+        transcript = " ".join([segment.text for segment in segments]).strip()
+
+        if not transcript:
+            await send_message(chat_id, "No entendí el audio 😅. Repetilo más claro?")
+            return
+
+        await send_message(chat_id, f"🎤 Transcribí: {transcript}")
+
+        # Procesar el texto transcrito como mensaje normal
+        text = transcript
+        low = text.lower()
+        # Pegá tu lógica de recordatorios acá (mañana, todos los días, etc.)
+
+    except Exception as e:
+        await send_message(chat_id, f"Error al transcribir: {str(e)}")
+    finally:
+        import os
+        os.unlink(tmp_path)  # borra el temporal
+    return
