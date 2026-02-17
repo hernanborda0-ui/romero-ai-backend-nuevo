@@ -3,3 +3,7 @@ uvicorn
 httpx
 apscheduler
 pytz
+faster-whisper
+# Opcional pero recomendado: acelera y reduce uso de memoria
+ctranslate2
+huggingface-hub
